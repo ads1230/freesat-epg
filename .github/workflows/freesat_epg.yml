@@ -1,0 +1,66 @@
+name: Update Freesat EPG
+
+on:
+  schedule:
+    - cron: '0 1 * * *' # Runs daily at 01:00 UTC (staggered from Freeview)
+  workflow_dispatch:
+
+jobs:
+  seed_freesat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install requests
+
+      - name: Run Freesat Seed (North West)
+        run: python freesat_script.py North_West
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Commit Seed Cache
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Seed Freesat Cache" || exit 0
+          git pull --rebase
+          git push
+
+  matrix_freesat:
+    needs: seed_freesat
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix:
+        region: [
+          Central_Scotland, Highlands_and_Islands, Border_Scotland, Wales, 
+          Northern_Ireland, Channel_Islands, London, North_East, Yorkshire, 
+          East_Yorks_and_Lincs, West_Midlands, East_Midlands, East_Anglia, 
+          South_East, West, South, South_West
+        ]
+      fail-fast: false
+    
+    steps:
+      - uses: actions/checkout@v4
+      - run: git pull --rebase
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: pip install requests
+
+      - name: Run Freesat Scraper
+        run: python freesat_script.py ${{ matrix.region }}
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Commit Regional XML
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update Freesat: ${{ matrix.region }}" || exit 0
+          git pull --rebase
+          git push
