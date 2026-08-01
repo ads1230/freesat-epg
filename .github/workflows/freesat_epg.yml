@@ -8,6 +8,8 @@ on:
 jobs:
   seed_freesat:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,6 +34,8 @@ jobs:
   matrix_freesat:
     needs: seed_freesat
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       max-parallel: 1
       matrix:
