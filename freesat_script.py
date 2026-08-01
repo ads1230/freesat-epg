@@ -6,6 +6,7 @@ import os
 import random
 import re
 import sys
+import time
 import urllib.parse
 import requests
 
@@ -114,6 +115,7 @@ def get_freeview_category(genre_urn):
 
 
 def fetch_deep_info(crid, prog_url, session):
+  time.sleep(0.25)  # Anti-ban delay
   try:
     r = session.get(prog_url, timeout=15)
     if r.status_code == 200:
@@ -173,75 +175,97 @@ def run(target_region=None):
     channels, progs, missing_crids = {}, [], {}
 
     # PASS 0: Fetch Channel Logos and LCNs
+    log("   [INFO] Cooling down for 30s before channel list pull...")
+    time.sleep(30)
+    
     log("   [INFO] Checking channel logos and LCNs...")
-    try:
-      r_chan = session.get(
-          f"https://www.freesat.co.uk/api/channel-list?nid={nid}", timeout=15
-      )
-      if r_chan.status_code == 200:
-        missing_logos = []
-        for chan in r_chan.json().get("data", {}).get("services", []):
-          cid = str(chan.get("service_id"))
-
-          lcn_val = (
-              chan.get("logical_channel_number")
-              or chan.get("number")
-              or chan.get("lcn")
-          )
-          if cid not in channels:
-            channels[cid] = {
-                "name": chan.get("title", "Unknown"),
-                "lcn": str(lcn_val) if lcn_val is not None else "",
-            }
-          else:
-            channels[cid]["lcn"] = str(lcn_val) if lcn_val is not None else ""
-
-          logo_url = chan.get("service_image")
-          if (
-              not logo_url
-              and "images" in chan
-              and isinstance(chan["images"], dict)
-          ):
-            logo_url = chan["images"].get("default") or chan["images"].get(
-                "square_white"
-            )
-
-          if cid and logo_url:
-            logo_path = os.path.join(LOGO_DIR, f"{cid}.png")
-            if not os.path.exists(logo_path):
-              fetch_url = logo_url + ("&w=800" if "?" in logo_url else "?w=800")
-              missing_logos.append((cid, logo_path, fetch_url))
-
-        total_logos = len(missing_logos)
-        if total_logos > 0:
-          log(
-              f"   [INFO] Found {total_logos} missing channel logos."
-              " Downloading..."
-          )
-          completed = 0
-          for cid, path, url in missing_logos:
-            try:
-              img_data = session.get(url, timeout=10).content
-              with open(path, "wb") as handler:
-                handler.write(img_data)
-            except Exception:
-              pass
-
-            completed += 1
-            update_iv = max(1, total_logos // 20)
-            if completed % update_iv == 0 or completed == total_logos:
-              pct = completed / total_logos
-              bar_len = 20
-              filled = int(bar_len * pct)
-              bar = "█" * filled + "-" * (bar_len - filled)
-              log(
-                  f"   Logo Progress: [{bar}] {pct*100:.1f}%"
-                  f" ({completed}/{total_logos})"
-              )
+    channel_list_success = False
+    
+    for attempt in range(1, 5):
+      try:
+        r_chan = session.get(
+            f"https://www.freesat.co.uk/api/channel-list?nid={nid}", timeout=15
+        )
+        if r_chan.status_code == 200:
+          channel_list_success = True
+          break
         else:
-          log("   [INFO] All channel logos are already up to date.")
+          log(f"   [WARNING] Channel list blocked (HTTP {r_chan.status_code}). Try {attempt}/4.")
+      except Exception as e:
+        log(f"   [WARNING] Channel list connection failed: {e}. Try {attempt}/4.")
+      
+      if attempt < 4:
+        log("   [INFO] Sleeping 30s before retry...")
+        time.sleep(30)
+
+    if not channel_list_success:
+      log(f"   [CRITICAL] Failed to fetch channel list for {region_name} after 4 attempts. Skipping region.")
+      continue
+
+    try:
+      missing_logos = []
+      for chan in r_chan.json().get("data", {}).get("services", []):
+        cid = str(chan.get("service_id"))
+
+        lcn_val = (
+            chan.get("logical_channel_number")
+            or chan.get("number")
+            or chan.get("lcn")
+        )
+        if cid not in channels:
+          channels[cid] = {
+              "name": chan.get("title", "Unknown"),
+              "lcn": str(lcn_val) if lcn_val is not None else "",
+          }
+        else:
+          channels[cid]["lcn"] = str(lcn_val) if lcn_val is not None else ""
+
+        logo_url = chan.get("service_image")
+        if (
+            not logo_url
+            and "images" in chan
+            and isinstance(chan["images"], dict)
+        ):
+          logo_url = chan["images"].get("default") or chan["images"].get(
+              "square_white"
+          )
+
+        if cid and logo_url:
+          logo_path = os.path.join(LOGO_DIR, f"{cid}.png")
+          if not os.path.exists(logo_path):
+            fetch_url = logo_url + ("&w=800" if "?" in logo_url else "?w=800")
+            missing_logos.append((cid, logo_path, fetch_url))
+
+      total_logos = len(missing_logos)
+      if total_logos > 0:
+        log(
+            f"   [INFO] Found {total_logos} missing channel logos."
+            " Downloading..."
+        )
+        completed = 0
+        for cid, path, url in missing_logos:
+          try:
+            img_data = session.get(url, timeout=10).content
+            with open(path, "wb") as handler:
+              handler.write(img_data)
+          except Exception:
+            pass
+
+          completed += 1
+          update_iv = max(1, total_logos // 20)
+          if completed % update_iv == 0 or completed == total_logos:
+            pct = completed / total_logos
+            bar_len = 20
+            filled = int(bar_len * pct)
+            bar = "█" * filled + "-" * (bar_len - filled)
+            log(
+                f"   Logo Progress: [{bar}] {pct*100:.1f}%"
+                f" ({completed}/{total_logos})"
+            )
+      else:
+        log("   [INFO] All channel logos are already up to date.")
     except Exception as e:
-      log(f"   [WARNING] Failed to fetch channel logos: {e}")
+      log(f"   [WARNING] Failed to parse channel logos: {e}")
 
     # PASS 1: Build Schedule
     for day in range(DAYS):
@@ -352,6 +376,7 @@ def run(target_region=None):
             )
 
           if blocked_count >= 5:
+            log("\n   [WARNING] Freesat API is blocking us (403/429). Halting Pass 2 to prevent a ban.")
             executor.shutdown(wait=False, cancel_futures=True)
             break
 
