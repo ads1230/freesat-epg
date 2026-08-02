@@ -28,7 +28,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Seed Freesat Cache" || exit 0
-          git pull --rebase
+          git pull --rebase -X theirs
           git push
 
   matrix_freesat:
@@ -49,7 +49,7 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
-      - run: git pull --rebase
+      - run: git pull --rebase -X theirs
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -66,5 +66,5 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add .
           git commit -m "Update Freesat: ${{ matrix.region }}" || exit 0
-          git pull --rebase
+          git pull --rebase -X theirs
           git push
